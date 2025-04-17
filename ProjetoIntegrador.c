@@ -129,6 +129,8 @@ int main()
     // Inicializa as variáveis de posição do quadrado
     int square_pos_x = 0;
     int square_pos_y = 0;
+    gpio_put(LED_PIN_GREEN, 1);
+
     while (true)
     {
 
@@ -302,7 +304,6 @@ static void gpio_irq_handler(uint gpio, uint32_t events)
     // Alterna o estado do LED verde e o estilo da borda do display quando o botão do joystick é pressionado
     else if (gpio == SW_PIN)
     {
-
         color = !color;
     }
     else if (gpio == PIN_BUTTON_B)
