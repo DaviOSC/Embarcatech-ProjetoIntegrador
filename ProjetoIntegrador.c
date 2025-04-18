@@ -11,7 +11,6 @@
 #include "hardware/clocks.h"
 #include "pio_matrix.pio.h"
 
-
 // Definições do display OLED
 #define I2C_PORT i2c1
 #define I2C_SDA 14
@@ -38,9 +37,7 @@
 #define SQUARE_SIZE 8 // Tamanho do quadrado
 #define NUM_PIXELS 25 // Número de pixels na matriz de LEDs
 
-bool green_led_state = false; // Estado inicial do LED verde
-bool blue_led_state = true; // Estado inicial do LED vermelho
-bool buzzer_active = false;   // Estado inicial da ativação do LED com PWM
+bool buzzer_active = false; // Estado inicial da ativação do LED com PWM
 
 absolute_time_t last_interrupt_time = {0};
 ssd1306_t ssd;
@@ -48,7 +45,6 @@ int color = 1;
 
 double led_matrix[NUM_PIXELS] = {0};
 
-void play_note(int buzzer, int frequency, int duration);
 void update_led_matrix(int square_pos_x, int square_pos_y);
 static void gpio_irq_handler(uint gpio, uint32_t events);
 uint32_t matrix_rgb(double r, double g, double b);
@@ -59,21 +55,21 @@ void print_screen(int square_pos_y, int square_pos_x, int color);
 int main()
 {
     // Inicialização do PIO
-    PIO pio = pio0; 
-    uint32_t valor_led;  
+    PIO pio = pio0;
+    uint32_t valor_led;
     stdio_init_all();
 
     // Configurações da PIO
     uint offset = pio_add_program(pio, &pio_matrix_program);
     uint sm = pio_claim_unused_sm(pio, true);
     pio_matrix_program_init(pio, sm, offset, OUT_PIN);
-    
+
     // Inicializa o ADC e os pinos do joystick
     adc_init();
     adc_gpio_init(VRX_PIN);
     adc_gpio_init(VRY_PIN);
     gpio_init(SW_PIN);
-    
+
     // Inicializa os pinos dos botões e LEDs
     gpio_init(PIN_BUTTON_A);
     gpio_init(PIN_BUTTON_B);
@@ -81,13 +77,13 @@ int main()
     gpio_init(LED_PIN_BLUE);
     gpio_init(LED_PIN_RED);
 
+    // Inicializa o PWM para o buzzer
     gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
     uint slice_num = pwm_gpio_to_slice_num(BUZZER_PIN);
     pwm_set_clkdiv(slice_num, 4.0);
     pwm_set_wrap(slice_num, 4095);
     pwm_set_enabled(slice_num, true);
 
-        
     gpio_set_dir(PIN_BUTTON_A, GPIO_IN);
     gpio_set_dir(PIN_BUTTON_B, GPIO_IN);
     gpio_set_dir(SW_PIN, GPIO_IN);
@@ -115,7 +111,7 @@ int main()
     ssd1306_init(&ssd, WIDTH, HEIGHT, false, endereco, I2C_PORT);
     ssd1306_config(&ssd);
     ssd1306_send_data(&ssd);
-    
+
     // Lê os valores iniciais do joystick para calibração
     adc_select_input(0);
     uint16_t vry_value = adc_read();
@@ -167,53 +163,68 @@ int main()
         // Define a posição do quadrado de acordo com os valores do joystick
         square_pos_x = (WIDTH - SQUARE_SIZE) / 2 + (calibrated_vrx_value * (WIDTH - SQUARE_SIZE) / 4095);
         square_pos_y = (HEIGHT - SQUARE_SIZE) / 2 + (-calibrated_vry_value * (HEIGHT - SQUARE_SIZE) / 4096);
-
+        
+        // Desenha o quadrado na tela
         print_screen(square_pos_y, square_pos_x, color);
-        // Atualiza a posição anterior do quadrado para a posição atual
-        update_led_matrix(square_pos_x, square_pos_y);
-        pio_drawn(led_matrix, valor_led, pio, sm, 0, color, !color);
 
+        
         if (buzzer_active)
         {
+            gpio_put(LED_PIN_GREEN, 0);
+            gpio_put(LED_PIN_BLUE, 0);
+            gpio_put(LED_PIN_RED, 1);
+            pio_drawn(led_matrix, valor_led, pio, sm, 0, 0, 0);
 
-            int frequency = 200 + (calibrated_vrx_value * 100 / 4095);
-            if (frequency < 100) frequency = 100;
+            // Calibra a frequência do buzzer com base no valor do joystick
+            int frequency = 250 + (calibrated_vrx_value * 100 / 4095);
+            
+            if (frequency < 100)
+            {
+                frequency = 100;
+            }
 
             uint wrap = 10000000 / frequency;
 
             pwm_set_wrap(slice_num, wrap);
-            pwm_set_gpio_level(BUZZER_PIN, wrap/10); 
+            pwm_set_gpio_level(BUZZER_PIN, wrap / 10);
+            printf("Buzzer Ativo - Frequência: %d Hz\n", frequency);
         }
         else
         {
+            // Desliga o buzzer e o LED vermelho
+            gpio_put(LED_PIN_RED, 0);
             pwm_set_gpio_level(BUZZER_PIN, 0);
+
+            // Desenha a matriz de LEDs com base na posição do quadrado
+            update_led_matrix(square_pos_x, square_pos_y);
+            pio_drawn(led_matrix, valor_led, pio, sm, 0, color, !color);
         }
         sleep_ms(10);
     }
 
     return 0;
 }
-// Função para converter um valor RGB para um valor de 32 bits
 // A função recebe os valores de vermelho, verde e azul do LED
 uint32_t matrix_rgb(double r, double g, double b)
 {
-  unsigned char R, G, B;
-  R = r * 255;
-  G = g * 255;
-  B = b * 255;
-  return (G << 24) | (R << 16) | (B << 8);
+    unsigned char R, G, B;
+    R = r * 255;
+    G = g * 255;
+    B = b * 255;
+    return (G << 24) | (R << 16) | (B << 8);
 }
 
-//rotina para acionar a matrix de leds
+// rotina para acionar a matrix de leds
 void pio_drawn(double *desenho, uint32_t valor_led, PIO pio, uint sm, double r, double g, double b)
 {
-  for (int16_t i = 0; i < NUM_PIXELS; i++)
-  {
-    uint32_t valor_led = matrix_rgb(r * desenho[24 - i], g * desenho[24 - i], b * desenho[24 - i]);
-    pio_sm_put_blocking(pio, sm, valor_led);
-  }
+    for (int16_t i = 0; i < NUM_PIXELS; i++)
+    {
+        uint32_t valor_led = matrix_rgb(r * desenho[24 - i], g * desenho[24 - i], b * desenho[24 - i]);
+        pio_sm_put_blocking(pio, sm, valor_led);
+    }
 }
 
+// Atualiza a matriz de LEDs com base na posição do quadrado
 void update_led_matrix(int square_pos_x, int square_pos_y)
 {
     for (int i = 0; i < NUM_PIXELS; i++)
@@ -235,27 +246,10 @@ void update_led_matrix(int square_pos_x, int square_pos_y)
         }
 
         int index = matrix_y * 5 + matrix_x; // Calcula o índice linear no vetor
-        led_matrix[index] = 0.1;            // Define o valor na posição do quadrado
+        led_matrix[index] = 0.1;             // Define o valor na posição do quadrado
     }
 }
 
-void play_note(int buzzer, int frequency, int duration) {
-    if (frequency == 0)
-    {
-      sleep_ms(duration);  // Pausa se a frequência for 0
-      return;
-    }
-  
-    int delay = 1000000 / frequency / 2; // Meio ciclo da frequência
-    int cycles = (frequency * duration) / 1000; // Número de ciclos para a duração
-  
-    for (int i = 0; i < cycles; i++) {
-        gpio_put(buzzer, 1); // Liga o buzzer
-        sleep_us(delay); // Aguarda o tempo do ciclo
-        gpio_put(buzzer, 0); // Desliga o buzzer
-        sleep_us(delay);// Aguarda o tempo do ciclo
-    }
-  }
 // Inicializa o PWM para um pino GPIO específico
 uint pwm_init_gpio(uint gpio, uint wrap)
 {
@@ -267,16 +261,17 @@ uint pwm_init_gpio(uint gpio, uint wrap)
     pwm_set_enabled(slice_num, true);
     return slice_num;
 }
-
+// Função para desenhar o quadrado na tela
 void print_screen(int square_pos_y, int square_pos_x, int color)
 {
-
+    // Desenha o fundo
     ssd1306_fill(&ssd, !color);
-
+    // Desenha a borda do display
     ssd1306_rect(&ssd, 3, 3, 122, 60, color, 0);
     ssd1306_rect(&ssd, 4, 4, 120, 58, color, 0);
     ssd1306_rect(&ssd, 5, 5, 118, 56, color, 0);
 
+    // Desenha o quadrado
     ssd1306_rect(&ssd, square_pos_y, square_pos_x, SQUARE_SIZE, SQUARE_SIZE, color, 1);
 
     ssd1306_send_data(&ssd);
@@ -299,20 +294,27 @@ static void gpio_irq_handler(uint gpio, uint32_t events)
     // Ativa ou desativa a funcionalidade do LED com PWM quando o botão A é pressionado
     if (gpio == PIN_BUTTON_A)
     {
+        printf("Botão A pressionado - Buzzer %s\n", buzzer_active ? "Desativado" : "Ativado");
         buzzer_active = !buzzer_active;
     }
     // Alterna o estado do LED verde e o estilo da borda do display quando o botão do joystick é pressionado
     else if (gpio == SW_PIN)
     {
-        color = !color;
+        printf("Botão do Joystick pressionado - Cor: %s\n", color ? "Azul" : "Verde");
+        if (!buzzer_active)
+        {
+            color = !color;
+        }
     }
     else if (gpio == PIN_BUTTON_B)
     {
-        // Ativar o BOOTSEL
-        printf("BOOTSEL ativado.\n");
+        printf("Botão B pressionado - Reiniciando para BOOTSEL\n");
         reset_usb_boot(0, 0);
     }
-    // Atualiza o estado dos LEDs
-    gpio_put(LED_PIN_GREEN, color);
-    gpio_put(LED_PIN_BLUE, !color);
+
+    if (!buzzer_active)
+    {
+        gpio_put(LED_PIN_GREEN, color);
+        gpio_put(LED_PIN_BLUE, !color);
+    }
 }
