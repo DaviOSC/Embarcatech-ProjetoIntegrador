@@ -49,7 +49,6 @@ void update_led_matrix(int square_pos_x, int square_pos_y);
 static void gpio_irq_handler(uint gpio, uint32_t events);
 uint32_t matrix_rgb(double r, double g, double b);
 void pio_drawn(double *desenho, uint32_t valor_led, PIO pio, uint sm, double r, double g, double b);
-uint pwm_init_gpio(uint gpio, uint wrap);
 void print_screen(int square_pos_y, int square_pos_x, int color);
 
 int main()
@@ -250,17 +249,6 @@ void update_led_matrix(int square_pos_x, int square_pos_y)
     }
 }
 
-// Inicializa o PWM para um pino GPIO específico
-uint pwm_init_gpio(uint gpio, uint wrap)
-{
-    gpio_set_function(gpio, GPIO_FUNC_PWM);
-
-    uint slice_num = pwm_gpio_to_slice_num(gpio);
-    pwm_set_wrap(slice_num, wrap);
-
-    pwm_set_enabled(slice_num, true);
-    return slice_num;
-}
 // Função para desenhar o quadrado na tela
 void print_screen(int square_pos_y, int square_pos_x, int color)
 {
